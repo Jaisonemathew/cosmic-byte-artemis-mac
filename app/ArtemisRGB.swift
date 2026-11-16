@@ -10,22 +10,38 @@ final class ArtemisDevice {
     static let vid = 0x04D9, pid = 0xA1CE, usagePage = 0xFF01
     private let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
     private var device: IOHIDDevice?
-    private var inputBuf = [UInt8](repeating: 0, count: 64)
+    // Must outlive the device registration, so it can't be a Swift array passed with &.
+    private let inputBuf = UnsafeMutablePointer<UInt8>.allocate(capacity: 64)
     fileprivate var lastInput: [UInt8]?
+    /// Called on the main thread with true when the keyboard is plugged in, false when it's removed.
+    var onConnectionChange: ((Bool) -> Void)?
 
     init() {
         IOHIDManagerSetDeviceMatching(manager, [kIOHIDVendorIDKey: Self.vid, kIOHIDProductIDKey: Self.pid,
                                                 kIOHIDPrimaryUsagePageKey: Self.usagePage] as CFDictionary)
+        // Watch for plug/unplug. Without a scheduled manager, its device list never updates after launch.
+        let ctx = Unmanaged.passUnretained(self).toOpaque()
+        IOHIDManagerRegisterDeviceMatchingCallback(manager, { ctx, _, _, _ in
+            guard let ctx else { return }
+            Unmanaged<ArtemisDevice>.fromOpaque(ctx).takeUnretainedValue().onConnectionChange?(true)
+        }, ctx)
+        IOHIDManagerRegisterDeviceRemovalCallback(manager, { ctx, _, _, removed in
+            guard let ctx else { return }
+            let me = Unmanaged<ArtemisDevice>.fromOpaque(ctx).takeUnretainedValue()
+            if let d = me.device, CFEqual(d, removed) { me.device = nil }
+            me.onConnectionChange?(false)
+        }, ctx)
+        IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+        IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
     }
 
     /// Opens (or re-opens after unplug) the vendor lighting interface.
     func connect() -> Bool {
-        if let d = device, IOHIDDeviceGetProperty(d, kIOHIDVendorIDKey as CFString) != nil { return true }
-        device = nil
+        if device != nil { return true }
         guard let set = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>, let d = set.first,
               IOHIDDeviceOpen(d, IOOptionBits(kIOHIDOptionsTypeNone)) == kIOReturnSuccess else { return false }
         let ctx = Unmanaged.passUnretained(self).toOpaque()
-        IOHIDDeviceRegisterInputReportCallback(d, &inputBuf, 64, { ctx, _, _, _, _, report, len in
+        IOHIDDeviceRegisterInputReportCallback(d, inputBuf, 64, { ctx, _, _, _, _, report, len in
             guard let ctx else { return }
             Unmanaged<ArtemisDevice>.fromOpaque(ctx).takeUnretainedValue().lastInput =
                 Array(UnsafeBufferPointer(start: report, count: len))
@@ -136,6 +152,23 @@ final class LightingModel: ObservableObject {
     private var palette = [UInt8](repeating: 63, count: 21)
 
     static let presets: [UInt32] = [0xFF0000, 0xFF6000, 0xFFD000, 0x00FF00, 0x00FFFF, 0x0060FF, 0x8000FF, 0xFF00C0, 0xFFFFFF]
+
+    init() {
+        device.onConnectionChange = { [weak self] plugged in
+            Task { @MainActor in
+                guard let self else { return }
+                if plugged {
+                    // Give the keyboard a moment to finish enumerating before talking to it.
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    self.refresh()
+                } else {
+                    self.applyTask?.cancel()
+                    self.connected = false
+                    self.status = "Keyboard unplugged"
+                }
+            }
+        }
+    }
 
     func refresh() {
         guard let led = device.getLED() else {
