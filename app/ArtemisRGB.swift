@@ -170,6 +170,22 @@ final class LightingModel: ObservableObject {
         }
     }
 
+    /// A vivid random colour: full brightness, high saturation, and a hue at least 60° away
+    /// from the current one so each click is a visible change. (The keyboard's own brightness
+    /// setting handles dimming, so dark colours would only look muddy.)
+    func randomColor() {
+        let current = NSColor(srgbRed: color.r, green: color.g, blue: color.b, alpha: 1)
+        let currentHue = rainbow ? -1 : Double(current.hueComponent)
+        var hue: Double
+        repeat {
+            hue = Double.random(in: 0..<1)
+        } while currentHue >= 0 && min(abs(hue - currentHue), 1 - abs(hue - currentHue)) < 1.0 / 6
+        let sat = Double.random(in: 0.75...1)
+        let n = NSColor(hue: hue, saturation: sat, brightness: 1, alpha: 1).usingColorSpace(.sRGB)!
+        rainbow = false
+        color = RGB(r: n.redComponent, g: n.greenComponent, b: n.blueComponent)
+    }
+
     func refresh() {
         guard let led = device.getLED() else {
             connected = false; status = "Keyboard not found — plug in the Artemis"; return
@@ -240,7 +256,15 @@ struct PanelView: View {
 
             // Colour
             VStack(alignment: .leading, spacing: 8) {
-                Text("Colour").font(.subheadline.weight(.medium))
+                HStack {
+                    Text("Colour").font(.subheadline.weight(.medium))
+                    Spacer()
+                    Button { model.randomColor() } label: {
+                        Label("Random", systemImage: "dice")
+                    }
+                    .controlSize(.small)
+                    .help("Pick a vivid random colour")
+                }
                 HStack(spacing: 6) {
                     ForEach(LightingModel.presets, id: \.self) { hex in
                         let c = RGB(hex: hex)
