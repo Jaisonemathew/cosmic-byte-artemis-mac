@@ -170,20 +170,15 @@ final class LightingModel: ObservableObject {
         }
     }
 
-    /// A vivid random colour: full brightness, high saturation, and a hue at least 60° away
-    /// from the current one so each click is a visible change. (The keyboard's own brightness
-    /// setting handles dimming, so dark colours would only look muddy.)
+    /// A truly random colour.
     func randomColor() {
-        let current = NSColor(srgbRed: color.r, green: color.g, blue: color.b, alpha: 1)
-        let currentHue = rainbow ? -1 : Double(current.hueComponent)
-        var hue: Double
-        repeat {
-            hue = Double.random(in: 0..<1)
-        } while currentHue >= 0 && min(abs(hue - currentHue), 1 - abs(hue - currentHue)) < 1.0 / 6
-        let sat = Double.random(in: 0.75...1)
-        let n = NSColor(hue: hue, saturation: sat, brightness: 1, alpha: 1).usingColorSpace(.sRGB)!
+        // Uniform over every colour the keyboard can show: 64 levels per channel (6-bit),
+        // 262,144 colours, each equally likely. SystemRandomNumberGenerator is
+        // cryptographically secure on macOS. No filtering, so dark, grey and repeats can happen.
+        var rng = SystemRandomNumberGenerator()
+        let six = (0..<3).map { _ in UInt8.random(in: 0...63, using: &rng) }
         rainbow = false
-        color = RGB(r: n.redComponent, g: n.greenComponent, b: n.blueComponent)
+        color = RGB.fromSix(six[0...])
     }
 
     func refresh() {
@@ -263,7 +258,7 @@ struct PanelView: View {
                         Label("Random", systemImage: "dice")
                     }
                     .controlSize(.small)
-                    .help("Pick a vivid random colour")
+                    .help("Pick a completely random colour")
                 }
                 HStack(spacing: 6) {
                     ForEach(LightingModel.presets, id: \.self) { hex in

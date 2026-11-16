@@ -35,7 +35,7 @@ Settings are stored on the keyboard itself, so they persist after unplugging and
 
 ## Menu bar app
 
-Click the keyboard icon in the menu bar. **🎲 Random** picks a vivid colour at least 60° around the colour wheel from the current one. Unplugging and replugging the keyboard is picked up automatically. Changes apply about a third of a second after you stop adjusting a control, so dragging doesn't flood the keyboard's onboard memory with writes. When it opens, the panel reads the keyboard's current settings.
+Click the keyboard icon in the menu bar. **🎲 Random** picks a truly random colour: every one of the keyboard's 262,144 colours is equally likely. Unplugging and replugging the keyboard is picked up automatically. Changes apply about a third of a second after you stop adjusting a control, so dragging doesn't flood the keyboard's onboard memory with writes. When it opens, the panel reads the keyboard's current settings.
 
 ## Protocol
 
